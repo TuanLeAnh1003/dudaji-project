@@ -1,5 +1,7 @@
 import "./App.css";
 import { Routes, Route, Navigate } from "react-router-dom";
+import Dashboard from "./modules/Dashboard";
+import LoginSignupForm from "./components/LoginSignupForm";
 
 const ProtectedRoute = ({ children, auth = false }) => {
   const isLoggedIn = localStorage.getItem("user:token") !== null || false;
@@ -8,7 +10,7 @@ const ProtectedRoute = ({ children, auth = false }) => {
     return <Navigate to={"/login"} />;
   } else if (
     isLoggedIn &&
-    ["/login", "/sign_up"].includes(window.location.pathname)
+    ["/login", "/signup"].includes(window.location.pathname)
   ) {
     return <Navigate to={"/"} />;
   }
@@ -22,7 +24,7 @@ function App() {
       <Route
         path="/"
         element={
-          <ProtectedRoute auth={true}>
+          <ProtectedRoute>
             <Dashboard />
           </ProtectedRoute>
         }
@@ -31,15 +33,15 @@ function App() {
         path="/login"
         element={
           <ProtectedRoute>
-            <Form isSignInPage={true} />
+            <LoginSignupForm isLogin={true} />
           </ProtectedRoute>
         }
       />
       <Route
-        path="/sign_up"
+        path="/signup"
         element={
           <ProtectedRoute>
-            <Form isSignInPage={false} />
+            <LoginSignupForm isLogin={false} />
           </ProtectedRoute>
         }
       />
