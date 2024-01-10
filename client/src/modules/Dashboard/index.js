@@ -1,53 +1,218 @@
-import { Input } from "antd";
-import React, { useRef, useState } from "react";
+import { Button, Input, Modal } from "antd";
+import React, { useEffect, useRef, useState } from "react";
+import { io } from "socket.io-client";
+import Peer from "simple-peer";
+import * as process from "process";
 
+window.global = window;
+window.process = process;
+window.Buffer = [];
+
+const socket = io(
+  process.env.REACT_APP_SOCKET_URL ?? "http://localhost:8080"
+);
 const Dashboard = () => {
-	const [user, setUser] = useState(JSON.parse(localStorage.getItem('user:detail')))
-  const [conversations, setConversations] = useState(['1', '2'])
-	const [messages, setMessages] = useState({})
-	const [message, setMessage] = useState('')
-	const [users, setUsers] = useState([])
-	const [socket, setSocket] = useState(null)
-	const messageRef = useRef(null)
+  const [user, setUser] = useState(
+    JSON.parse(localStorage.getItem("user:detail"))
+  );
+  const [conversations, setConversations] = useState([]);
+  const [messages, setMessages] = useState({});
+  const [message, setMessage] = useState("");
+  const [users, setUsers] = useState([]);
+  const [stream, setStream] = useState();
+  const [receivingCall, setReceivingCall] = useState();
+  const [caller, setCaller] = useState();
+  const [callerSignal, setCallerSignal] = useState();
+  const [callAccepted, setCallAccepted] = useState();
+  const [callEnded, setCallEnded] = useState();
+  const [me, setMe] = useState("");
+  const [name, setName] = useState("");
+  const [openCallModal, setOpenCallModal] = useState(false);
+
+  const messageRef = useRef(null);
+  const videoRef = useRef();
+  const userVideo = useRef();
+  const connectionRef = useRef();
+
+  const BACK_END_URL =
+    process.env.REACT_APP_BACK_END_URL ?? "http://192.168.0.103:8000";
+
+  useEffect(() => {
+    socket?.emit("addUser", user?.id);
+    // socket?.on("getUsers", (users) => {
+    // });
+    socket?.on("getMessage", (data) => {
+      setMessages((prev) => ({
+        ...prev,
+        messages: [
+          ...prev.messages,
+          { user: data.user, message: data.message },
+        ],
+      }));
+    });
+  }, []);
+
+  useEffect(() => {
+    messageRef?.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages?.messages]);
+
+  useEffect(() => {
+    const loggedInUser = JSON.parse(localStorage.getItem("user:detail"));
+    const fetchConversations = async () => {
+      const res = await fetch(
+        `${BACK_END_URL}/api/conversations/${loggedInUser?.id}`,
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      const resData = await res.json();
+      setConversations(resData);
+    };
+    fetchConversations();
+  }, []);
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      const res = await fetch(`${BACK_END_URL}/api/users/${user?.id}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+      const resData = await res.json();
+      setUsers(resData);
+    };
+    fetchUsers();
+  }, []);
+
+  useEffect(() => {
+    navigator.mediaDevices
+        .getUserMedia({ video: true, audio: true })
+        .then((stream) => {
+          setStream(stream);
+        }).catch(err => {
+          console.log(err);
+        });
+
+    socket.on("me", (id) => {
+      setMe(id);
+    });
+    socket.on("callUser", (data) => {
+      setReceivingCall(true);
+      setCaller(data.from);
+      setName(data.name);
+      setCallerSignal(data.signal);
+    });
+  }, []);
+
+  useEffect(() => {
+    if(stream && videoRef.current) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream, videoRef.current])
 
   const fetchMessages = async (conversationId, receiver) => {
-		const res = await fetch(`http://localhost:8000/api/message/${conversationId}?senderId=${user?.id}&&receiverId=${receiver?.receiverId}`, {
-			method: 'GET',
-			headers: {
-				'Content-Type': 'application/json',
-			}
-		});
-		const resData = await res.json()
-		setMessages({ messages: resData, receiver, conversationId })
-	}
+    const res = await fetch(
+      `${BACK_END_URL}/api/message/${conversationId}?senderId=${user?.id}&&receiverId=${receiver?.receiverId}`,
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    const resData = await res.json();
+    setMessages({ messages: resData, receiver, conversationId });
+  };
 
-	const sendMessage = async (e) => {
-		setMessage('')
-		socket?.emit('sendMessage', {
-			senderId: user?.id,
-			receiverId: messages?.receiver?.receiverId,
-			message,
-			conversationId: messages?.conversationId
-		});
-		const res = await fetch(`http://localhost:8000/api/message`, {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify({
-				conversationId: messages?.conversationId,
-				senderId: user?.id,
-				message,
-				receiverId: messages?.receiver?.receiverId
-			})
-		});
-	}
+  const sendMessage = async (e) => {
+    setMessage("");
+    socket?.emit("sendMessage", {
+      senderId: user?.id,
+      receiverId: messages?.receiver?.receiverId,
+      message,
+      conversationId: messages?.conversationId,
+    });
+    const res = await fetch(`${BACK_END_URL}/api/message`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        conversationId: messages?.conversationId,
+        senderId: user?.id,
+        message,
+        receiverId: messages?.receiver?.receiverId,
+      }),
+    });
+  };
 
+  const callUser = (id) => {
+    const peer = new Peer({
+      initiator: true,
+      trickle: false,
+      stream: stream,
+    });
+
+    peer.on("signal", (data) => {
+      if (data.renegotiate || data.transceiverRequest) return;
+      socket.emit("callUser", {
+        userToCall: id,
+        signalData: data,
+        from: me,
+        name: user.fullName,
+      });
+    });
+
+    socket.on("callAccepted", (signal) => {
+      setCallAccepted(true);
+      peer.signal(signal)
+    });
+
+    connectionRef.current = peer;
+  };
+
+  const answerCall = () => {
+    setCallAccepted(true);
+    const peer = new Peer({
+      initiator: true,
+      trickle: false,
+      stream: stream,
+    });
+
+    peer.on("signal", (data) => {
+      socket.emit("answerCall", { signal: data, to: caller });
+    });
+    peer.on("stream", (stream) => {
+      userVideo.current.srcObject = stream;
+    });
+
+    peer.signal(callerSignal);
+    connectionRef.current = peer;
+  };
+
+  const leaveCall = () => {
+    setCallEnded(true);
+    connectionRef.current.destroy();
+  };
+
+  const handleClickCall = (id) => {
+    setOpenCallModal(true);
+    callUser(id);
+  };
 
   return (
     <div className="w-screen flex">
       <div className="w-[25%] h-screen bg-secondary overflow-scroll">
         <div className="flex items-center my-8 mx-14">
+          <img
+            className="w-12 h-12 rounded-full"
+            src={user?.avatarUrl}
+            alt="avatar"
+          />
           <div className="ml-8">
             <h3 className="text-2xl">{user?.fullName}</h3>
             <p className="text-lg font-light">My Account</p>
@@ -66,10 +231,10 @@ const Dashboard = () => {
                       onClick={() => fetchMessages(conversationId, user)}
                     >
                       <div>
-                        {/* <img
-                          src={Img1}
+                        <img
+                          src={user?.avatarUrl}
                           className="w-[60px] h-[60px] rounded-full p-[2px] border border-primary"
-                        /> */}
+                        />
                       </div>
                       <div className="ml-6">
                         <h3 className="text-lg font-semibold">
@@ -93,9 +258,12 @@ const Dashboard = () => {
       </div>
       <div className="w-[50%] h-screen bg-white flex flex-col items-center">
         {messages?.receiver?.fullName && (
-          <div className="w-[75%] bg-secondary h-[80px] my-14 rounded-full flex items-center px-14 py-2">
+          <div className="w-[75%] bg-secondary h-[80px] my-6 rounded-full flex items-center px-14 py-2">
             <div className="cursor-pointer">
-              {/* <img src={Img1} width={60} height={60} className="rounded-full" /> */}
+              <img
+                src={user?.avatarUrl}
+                className="w-[60px] h-[60px] rounded-full p-[2px] border border-primary"
+              />
             </div>
             <div className="ml-6 mr-auto">
               <h3 className="text-lg">{messages?.receiver?.fullName}</h3>
@@ -103,18 +271,16 @@ const Dashboard = () => {
                 {messages?.receiver?.email}
               </p>
             </div>
-            <div className="cursor-pointer">
+            <div
+              className="cursor-pointer"
+              onClick={() => handleClickCall(messages?.receiver?.receiverId)}
+            >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                class="icon icon-tabler icon-tabler-phone-outgoing"
                 width="24"
                 height="24"
                 viewBox="0 0 24 24"
-                stroke-width="1.5"
-                stroke="black"
-                fill="none"
-                stroke-linecap="round"
-                stroke-linejoin="round"
+                fill="black"
               >
                 <path stroke="none" d="M0 0h24v24H0z" fill="none" />
                 <path d="M5 4h4l2 5l-2.5 1.5a11 11 0 0 0 5 5l1.5 -2.5l5 2v4a2 2 0 0 1 -2 2a16 16 0 0 1 -15 -15a2 2 0 0 1 2 -2" />
@@ -129,18 +295,27 @@ const Dashboard = () => {
             {messages?.messages?.length > 0 ? (
               messages.messages.map(({ message, user: { id } = {} }) => {
                 return (
-                  <>
+                  <div className="flex items-center">
+                    {id !== user?.id && (
+                      <img
+                        src={user?.avatarUrl}
+                        className="mr-3 w-[60px] h-[60px] rounded-full p-[2px] border border-primary"
+                      />
+                    )}
                     <div
                       className={`max-w-[40%] rounded-b-xl p-4 mb-6 ${
                         id === user?.id
-                          ? "bg-primary text-white rounded-tl-xl ml-auto"
+                          ? "bg-primary rounded-tl-xl ml-auto text-white"
                           : "bg-secondary rounded-tr-xl"
                       } `}
+                      style={{
+                        color: id === user?.id ? "white" : "black",
+                      }}
                     >
                       {message}
                     </div>
                     <div ref={messageRef}></div>
-                  </>
+                  </div>
                 );
               })
             ) : (
@@ -151,7 +326,7 @@ const Dashboard = () => {
           </div>
         </div>
         {messages?.receiver?.fullName && (
-          <div className="p-14 w-full flex items-center">
+          <div className="p-6 w-full flex items-center">
             <Input
               placeholder="Type a message..."
               value={message}
@@ -220,10 +395,10 @@ const Dashboard = () => {
                     onClick={() => fetchMessages("new", user)}
                   >
                     <div>
-                      {/* <img
-                        src={Img1}
+                      <img
+                        src={user?.avatarUrl}
                         className="w-[60px] h-[60px] rounded-full p-[2px] border border-primary"
-                      /> */}
+                      />
                     </div>
                     <div className="ml-6">
                       <h3 className="text-lg font-semibold">
@@ -244,6 +419,63 @@ const Dashboard = () => {
           )}
         </div>
       </div>
+
+      <Modal
+        open={openCallModal || receivingCall}
+        onCancel={() => {
+          setOpenCallModal(false);
+          setCallEnded(true);
+        }}
+      >
+        <div className="container">
+          <div className="video-container">
+            <div className="video">
+              <video
+                playsInline
+                muted
+                ref={videoRef}
+                autoPlay
+                style={{ width: "300px" }}
+              />
+            </div>
+            <div className="video">
+              <video
+                playsInline
+                ref={userVideo}
+                autoPlay
+                style={{ width: "300px" }}
+              />
+            </div>
+          </div>
+          <div className="myId">
+            <div className="call-button">
+              {callAccepted && !callEnded && (
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  onClick={leaveCall}
+                >
+                  End Call
+                </Button>
+              )}
+            </div>
+          </div>
+          <div>
+            {receivingCall && !callAccepted ? (
+              <div className="caller">
+                <h1>{name} is calling...</h1>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  onClick={answerCall}
+                >
+                  Answer
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };
