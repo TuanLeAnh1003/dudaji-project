@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import Peer from "simple-peer";
 import * as process from "process";
+import { useNavigate } from "react-router-dom";
 
 window.global = window;
 window.process = process;
@@ -12,6 +13,8 @@ const socket = io(
   process.env.REACT_APP_SOCKET_URL ?? "http://localhost:8080"
 );
 const Dashboard = () => {
+  const navigate = useNavigate();
+
   const [user, setUser] = useState(
     JSON.parse(localStorage.getItem("user:detail"))
   );
@@ -220,6 +223,11 @@ const Dashboard = () => {
           <div className="ml-8">
             <h3 className="text-2xl">{user?.fullName}</h3>
             <p className="text-lg font-light">My Account</p>
+            <Button onClick={() => {
+              localStorage.removeItem('user:token')
+              localStorage.removeItem('user:detail')
+              navigate('/login')
+            }}>Logout</Button>
           </div>
         </div>
         <hr />
@@ -429,11 +437,12 @@ const Dashboard = () => {
         onCancel={() => {
           setOpenCallModal(false);
           setCallEnded(true);
+          setReceivingCall(false)
         }}
         footer={false}
       >
-        <div className="container">
-          <div className="video-container">
+        <div className="container  flex items-center flex-col">
+          <div className="video-container mt-10 flex justify-center">
             <div className="video">
               <video
                 playsInline
@@ -452,7 +461,7 @@ const Dashboard = () => {
               />
             </div>
           </div>
-          <div className="myId">
+          <div className="myId mt-10">
             <div className="call-button">
               {callAccepted && !callEnded && (
                 <Button
