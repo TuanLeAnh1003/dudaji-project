@@ -2,12 +2,7 @@ const express = require("express");
 const bcryptjs = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
-const io = require("socket.io")(process.env.SOCKET_PORT || 8080, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
-});
+const http = require('http');
 
 // Connect DB
 require("./db/connection");
@@ -19,6 +14,13 @@ const Messages = require("./models/Messages");
 
 // app Use
 const app = express();
+const server = http.createServer(app);
+const io = require("socket.io")(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cors());
@@ -297,6 +299,6 @@ app.get("/api/users/:userId", async (req, res) => {
   }
 });
 
-app.listen(port, () => {
+server.listen(port, () => {
   console.log("listening on port " + port);
 });

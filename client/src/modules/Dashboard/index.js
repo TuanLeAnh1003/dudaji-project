@@ -35,7 +35,7 @@ const Dashboard = () => {
   const connectionRef = useRef();
 
   const BACK_END_URL =
-    process.env.REACT_APP_BACK_END_URL ?? "http://192.168.0.103:8000";
+    process.env.REACT_APP_BACK_END_URL ?? "http://localhost:8000";
 
   useEffect(() => {
     socket?.emit("addUser", user?.id);
@@ -158,7 +158,6 @@ const Dashboard = () => {
     });
 
     peer.on("signal", (data) => {
-      if (data.renegotiate || data.transceiverRequest) return;
       socket.emit("callUser", {
         userToCall: id,
         signalData: data,
@@ -166,6 +165,10 @@ const Dashboard = () => {
         name: user.fullName,
       });
     });
+
+    peer.on("stream", (stream) => {
+      userVideo.current.srcObject = stream
+  })
 
     socket.on("callAccepted", (signal) => {
       setCallAccepted(true);
@@ -178,7 +181,7 @@ const Dashboard = () => {
   const answerCall = () => {
     setCallAccepted(true);
     const peer = new Peer({
-      initiator: true,
+      initiator: false,
       trickle: false,
       stream: stream,
     });
@@ -197,6 +200,7 @@ const Dashboard = () => {
   const leaveCall = () => {
     setCallEnded(true);
     connectionRef.current.destroy();
+    setOpenCallModal(false);
   };
 
   const handleClickCall = (id) => {
@@ -387,9 +391,9 @@ const Dashboard = () => {
         <div className="text-primary text-lg">People</div>
         <div>
           {users.length > 0 ? (
-            users.map(({ userId, user }) => {
+            users.reverse().map(({ userId, user }) => {
               return (
-                <div className="flex items-center py-8 border-b border-b-gray-300">
+                <div className="flex items-center py-8 border-b border-b-gray-300" key={userId}>
                   <div
                     className="cursor-pointer flex items-center"
                     onClick={() => fetchMessages("new", user)}
@@ -426,6 +430,7 @@ const Dashboard = () => {
           setOpenCallModal(false);
           setCallEnded(true);
         }}
+        footer={false}
       >
         <div className="container">
           <div className="video-container">
